@@ -1,0 +1,102 @@
+!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>استوديو Babylon.js بالذكاء الاصطناعي</title>
+  <style>
+    * { box-sizing: border-box; font-family: system-ui, sans-serif; }
+    body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #111; color: #fff; }
+    #renderCanvas { width: 100%; height: 100%; display: block; touch-action: none; }
+    #ui {
+      position: fixed; bottom: 15px; left: 15px; right: 15px;
+      background: rgba(20, 20, 28, 0.9); backdrop-filter: blur(8px);
+      padding: 12px; border-radius: 14px; border: 1px solid #333;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .row { display: flex; gap: 8px; }
+    input {
+      flex: 1; padding: 10px; border-radius: 8px; border: 1px solid #444;
+      background: #1e1e26; color: #fff; outline: none;
+    }
+    button {
+      padding: 10px 16px; border-radius: 8px; border: none;
+      background: #2563eb; color: #fff; font-weight: bold; cursor: pointer;
+    }
+    button:disabled { background: #555; }
+    #status { font-size: 12px; color: #9ca3af; }
+  </style>
+  <script src="babylon.js"></script>
+</head>
+<body>
+  <canvas id="renderCanvas"></canvas>
+
+  <div id="ui">
+    <input type="password" id="apiKey" placeholder="ضع مفتاح Gemini API هنا..." />
+    <div class="row">
+      <input type="text" id="prompt" placeholder="اطلب من الذكاء الاصطناعي (مثال: أضف كرة زرقاء تدور)" />
+      <button id="sendBtn" onclick="askAI()">تنفيذ</button>
+    </div>
+    <div id="status">جاهز... المحرك المحلي يعمل.</div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById("renderCanvas");
+    const engine = new BABYLON.Engine(canvas, true);
+    const scene = new BABYLON.Scene(engine);
+    scene.clearColor = new BABYLON.Color4(0.08, 0.09, 0.12, 1);
+
+    const camera = new BABYLON.ArcRotateCamera("cam", -Math.PI / 2, Math.PI / 2.5, 10, BABYLON.Vector3.Zero(), scene);
+    camera.attachControl(canvas, true);
+    new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
+
+    const starterBox = BABYLON.MeshBuilder.CreateBox("box", { size: 1.5 }, scene);
+    starterBox.position.y = 0.75;
+
+    engine.runRenderLoop(() => scene.render());
+    window.addEventListener("resize", () => engine.resize());
+
+    async function askAI() {
+      const apiKey = document.getElementById("apiKey").value.trim();
+      const promptText = document.getElementById("prompt").value.trim();
+      const status = document.getElementById("status");
+      const btn = document.getElementById("sendBtn");
+
+      if (!apiKey || !promptText) {
+        status.textContent = "يرجى إدخال مفتاح API وكتابة الطلب أولاً.";
+        return;
+      }
+
+      btn.disabled = true;
+      status.textContent = "جاري توليد كود الـ 3D...";
+
+      const systemInstruction = `أنت خبير Babylon.js. أرجع كود JavaScript فقط بدون أي شرح أو علامات markdown.
+المتغيرات المتاحة مسبقاً هي: scene, camera, engine, BABYLON.
+نفّذ طلب المستخدم مباشرة على المتغير scene.`;
+
+      try {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: systemInstruction + "\nطلب المستخدم: " + promptText }] }]
+          })
+        });
+
+        const data = await res.json();
+        let code = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        code = code.replace(/```javascript|```js|```/g, "").trim();
+
+        const runCode = new Function("scene", "camera", "engine", "BABYLON", code);
+        runCode(scene, camera, engine, BABYLON);
+
+        status.textContent = "تم التنفيذ بنجاح!";
+      } catch (err) {
+        status.textContent = "حدث خطأ: " + err.message;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+  </script>
+</body>
+</html>
